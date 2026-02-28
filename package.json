@@ -1,0 +1,36 @@
+{
+  "name": "pi-butler",
+  "version": "1.0.0",
+  "description": "Personal Work Butler (AI Secretary) Agent built on Pi",
+  "type": "module",
+  "main": "./dist/main.js",
+  "bin": {
+    "pi-butler": "./dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "dev": "pnpm exec tsx src/main.ts",
+    "server": "node dist/server/server.js",
+    "dev:server": "pnpm exec tsx src/server/server.ts"
+  },
+  "dependencies": {
+    "@mariozechner/pi-ai": "^0.55.3",
+    "@mariozechner/pi-agent-core": "^0.55.3",
+    "@sinclair/typebox": "^0.34.41",
+    "chalk": "^5.6.2",
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0",
+    "grammy": "^1.35.0",
+    "discord.js": "^14.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/express": "^5.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
