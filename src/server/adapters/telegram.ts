@@ -11,11 +11,40 @@ export function createTelegramAdapter(gateway: Gateway): Bot | null {
   const bot = new Bot(token);
 
   bot.on("message:text", async (ctx) => {
+    const inputText = ctx.message.text.trim();
+
+    if (/^\/auth\s+status$/i.test(inputText) || /^授权状态$/.test(inputText)) {
+      const status = gateway.getAuthStatus("telegram", String(ctx.from.id));
+      if (status.connected) {
+        await ctx.reply(`已绑定 OAuth：${status.provider ?? "unknown"}`);
+      } else {
+        await ctx.reply("当前未绑定 OAuth 账号。发送 /auth 开始授权。");
+      }
+      return;
+    }
+
+    if (/^\/auth$/i.test(inputText) || /^授权$/.test(inputText)) {
+      try {
+        const result = gateway.getOAuthEntryLink("telegram", String(ctx.from.id));
+        await ctx.reply(
+          [
+            "请点击下方链接完成 OAuth 授权：",
+            result.authUrl,
+            "",
+            "完成后可发送 /auth status 查看绑定状态。",
+          ].join("\n"),
+        );
+      } catch (err) {
+        await ctx.reply(`OAuth 当前不可用：${err instanceof Error ? err.message : String(err)}`);
+      }
+      return;
+    }
+
     const msg: IncomingMessage = {
       channel: "telegram",
       userId: String(ctx.from.id),
       userName: ctx.from.first_name ?? ctx.from.username,
-      text: ctx.message.text,
+      text: inputText,
       timestamp: ctx.message.date * 1000,
     };
 

@@ -36,6 +36,10 @@ async function main() {
   // HTTP Server
   app.listen(PORT, () => {
     console.log(`\n[Pi Butler Server] listening on http://0.0.0.0:${PORT}`);
+    console.log(`  POST /api/auth/oauth/start — start OAuth`);
+    console.log(`  GET  /api/auth/oauth/callback — OAuth callback`);
+    console.log(`  GET  /api/auth/status     — auth status`);
+    console.log(`  POST /api/auth/disconnect — disconnect auth`);
     console.log(`  POST /api/chat          — SSE streaming`);
     console.log(`  POST /api/chat/sync     — blocking JSON`);
     console.log(`  GET  /health            — health check`);

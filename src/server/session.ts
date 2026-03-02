@@ -1,5 +1,4 @@
 import { Agent } from "@mariozechner/pi-agent-core";
-import { getModel } from "@mariozechner/pi-ai";
 import { Storage, getUserDataDir } from "../storage.js";
 import { createTools } from "../tools.js";
 import { SYSTEM_PROMPT } from "./constants.js";
@@ -9,10 +8,16 @@ export interface Session {
   id: string;
   channel: ChannelType;
   userId: string;
+  modelKey: string;
   agent: Agent;
   storage: Storage;
   createdAt: number;
   lastActiveAt: number;
+}
+
+export interface SessionModelConfig {
+  model: any;
+  modelKey: string;
 }
 
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
@@ -21,7 +26,7 @@ export class SessionManager {
   private sessions = new Map<string, Session>();
   private cleanupTimer: ReturnType<typeof setInterval>;
 
-  constructor(private resolveModel: () => ReturnType<typeof getModel>) {
+  constructor() {
     this.cleanupTimer = setInterval(() => this.cleanup(), 60_000);
   }
 
@@ -29,23 +34,22 @@ export class SessionManager {
     return `${channel}:${userId}`;
   }
 
-  getOrCreate(channel: ChannelType, userId: string): Session {
+  getOrCreate(channel: ChannelType, userId: string, modelConfig: SessionModelConfig): Session {
     const key = this.makeKey(channel, userId);
     let session = this.sessions.get(key);
-    if (session) {
+
+    if (session && session.modelKey === modelConfig.modelKey) {
       session.lastActiveAt = Date.now();
       return session;
     }
 
-    const dataDir = getUserDataDir(channel, userId);
-    const storage = new Storage(dataDir);
+    const storage = session?.storage ?? new Storage(getUserDataDir(channel, userId));
     const tools = createTools(storage);
-    const model = this.resolveModel();
 
     const agent = new Agent({
       initialState: {
         systemPrompt: SYSTEM_PROMPT,
-        model,
+        model: modelConfig.model,
         tools,
       },
     });
@@ -54,9 +58,10 @@ export class SessionManager {
       id: key,
       channel,
       userId,
+      modelKey: modelConfig.modelKey,
       agent,
       storage,
-      createdAt: Date.now(),
+      createdAt: session?.createdAt ?? Date.now(),
       lastActiveAt: Date.now(),
     };
 

@@ -30,7 +30,7 @@
 - **多用户隔离** — 服务模式下每个用户的数据完全独立
 - **多渠道** — Telegram Bot、Discord Bot、REST API 同时运行
 - **多语言** — 自动匹配用户语言（中文、英文等）
-- **多 Provider** — 支持 Anthropic、OpenAI、Google 等所有 Pi 支持的 LLM
+- **多 Provider** — 优先支持 OpenAI 兼容国内平台（千问 / 豆包 / Kimi / DeepSeek），也兼容其他 Provider
 
 ---
 
@@ -137,21 +137,46 @@ pnpm run build
 
 ### 配置 LLM
 
+CLI 现在支持**首次启动引导**，即使没提前配 `.env` 也可直接进入配置流程。
+
+#### 方式 A：首次启动引导（推荐）
+
+首次运行 `pnpm start` / `pnpm dev`，若未检测到可用模型，会进入 onboarding：
+
+- `1) OAuth 登录`（复用 ChatGPT/Codex 订阅）
+- `2) 设置 AI API Key`
+  - OpenAI 兼容（自定义中转站 `Base URL + Model`）
+  - 千问（DashScope）
+  - 豆包（Ark）
+  - Kimi（Moonshot）
+  - DeepSeek
+  - Anthropic
+  - Google/Gemini
+- `3) 退出`
+
+在 onboarding 里设置 API Key 后，还可以选择**写入当前目录 `.env`**，下次自动生效。
+
+#### 方式 B：手动配置 `.env`
+
 ```bash
 cp .env.example .env
 ```
 
-编辑 `.env`，填写至少一个 LLM API Key：
+示例（OpenAI 兼容 + 自定义中转站）：
 
 ```ini
-# 推荐：Anthropic Claude
-ANTHROPIC_API_KEY=sk-ant-...
+PI_BUTLER_PROVIDER=openai
+OPENAI_BASE_URL=https://your-relay.example.com/v1
+OPENAI_API_KEY=sk-xxxx
+PI_BUTLER_MODEL=qwen-plus
+```
 
-# 或 OpenAI
-OPENAI_API_KEY=sk-...
+也支持兼容别名：
 
-# 或 Google Gemini
-GOOGLE_API_KEY=AIza...
+```ini
+OPENAI_COMPAT_API_KEY=sk-xxxx
+OPENAI_COMPAT_BASE_URL=https://your-relay.example.com/v1
+OPENAI_COMPAT_MODEL=qwen-plus
 ```
 
 > `.env` 已加入 `.gitignore`，不会被提交到 Git。
@@ -197,8 +222,21 @@ cp .env.example .env
 编辑 `.env`：
 
 ```ini
-# LLM（必选其一）
-ANTHROPIC_API_KEY=sk-ant-...
+# LLM（推荐：国内 OpenAI 兼容平台，示例为千问）
+PI_BUTLER_PROVIDER=openai
+OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+OPENAI_API_KEY=sk-xxxx
+PI_BUTLER_MODEL=qwen-plus
+
+# OAuth（可选，用于 ChatGPT/Codex 订阅授权）
+# OAUTH_OPENAI_AUTH_URL=
+# OAUTH_OPENAI_TOKEN_URL=
+# OAUTH_OPENAI_CLIENT_ID=
+# OAUTH_OPENAI_CLIENT_SECRET=
+# OAUTH_OPENAI_REDIRECT_URI=http://localhost:3000/api/auth/oauth/callback
+# OAUTH_OPENAI_SCOPE=openid profile offline_access
+# OAUTH_OPENAI_BASE_URL=https://api.openai.com/v1
+# OAUTH_OPENAI_MODEL=gpt-4o
 
 # Telegram Bot（可选，不填则不启动）
 TELEGRAM_BOT_TOKEN=123456789:ABC...
@@ -238,6 +276,10 @@ pnpm server
 
 ```
 [Pi Butler Server] listening on http://0.0.0.0:3000
+  POST /api/auth/oauth/start — start OAuth
+  GET  /api/auth/oauth/callback — OAuth callback
+  GET  /api/auth/status      — auth status
+  POST /api/auth/disconnect  — disconnect auth
   POST /api/chat        — SSE streaming
   POST /api/chat/sync   — blocking JSON
   GET  /health          — health check
@@ -303,6 +345,38 @@ curl -X POST http://localhost:3000/api/chat/sync \
 { "reply": "好的，已为你创建任务「写周报」，截止今日。" }
 ```
 
+**OAuth 授权（可选）**
+
+1) 开始授权（返回 `authUrl`，前端跳转到该地址）：
+
+```bash
+curl -X POST http://localhost:3000/api/auth/oauth/start \
+  -H "Content-Type: application/json" \
+  -d '{"channel":"http","userId":"user1","provider":"openai_codex"}'
+```
+
+2) 用户完成授权后，OAuth Provider 会回调：
+
+```text
+GET /api/auth/oauth/callback?code=...&state=...
+```
+
+3) 查看当前用户授权状态：
+
+```bash
+curl "http://localhost:3000/api/auth/status?channel=http&userId=user1"
+```
+
+4) 解绑授权：
+
+```bash
+curl -X POST http://localhost:3000/api/auth/disconnect \
+  -H "Content-Type: application/json" \
+  -d '{"channel":"http","userId":"user1"}'
+```
+
+> 运行时策略：用户已绑定 OAuth 时优先使用 OAuth 凭据；未绑定时继续走 `.env` 中的 API Key。
+
 **清除会话上下文**
 
 ```bash
@@ -326,13 +400,56 @@ curl http://localhost:3000/health
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `ANTHROPIC_API_KEY` | Anthropic API Key | — |
-| `OPENAI_API_KEY` | OpenAI API Key | — |
-| `GOOGLE_API_KEY` / `GEMINI_API_KEY` | Google API Key | — |
-| `PI_BUTLER_PROVIDER` | 手动指定 provider（`anthropic` / `openai` / `google`） | 自动检测 |
-| `PI_BUTLER_MODEL` | 手动指定 model ID | 自动检测 |
+| `PI_BUTLER_PROVIDER` | 推荐固定为 `openai`（OpenAI 兼容模式） | 自动检测 |
+| `OPENAI_BASE_URL` | 厂商 OpenAI 兼容端点 | — |
+| `OPENAI_API_KEY` | 厂商 API Key | — |
+| `PI_BUTLER_MODEL` | 厂商模型名 | 自动检测 |
+| `OPENAI_COMPAT_API_KEY` | `OPENAI_API_KEY` 兼容别名 | — |
+| `OPENAI_COMPAT_BASE_URL` | `OPENAI_BASE_URL` 兼容别名 | — |
+| `OPENAI_COMPAT_MODEL` | `PI_BUTLER_MODEL` 兼容别名 | — |
+| `QWEN_API_KEY` / `DASHSCOPE_API_KEY` | 千问 API Key 别名（自动桥接到 OpenAI 兼容配置） | — |
+| `DOUBAO_API_KEY` / `ARK_API_KEY` | 豆包 API Key 别名（自动桥接） | — |
+| `KIMI_API_KEY` / `MOONSHOT_API_KEY` | Kimi API Key 别名（自动桥接） | — |
+| `DEEPSEEK_API_KEY` | DeepSeek API Key 别名（自动桥接） | — |
+| `ANTHROPIC_API_KEY` | Anthropic API Key（可选） | — |
+| `GOOGLE_API_KEY` / `GEMINI_API_KEY` | Google API Key（可选） | — |
 
-**自动选择优先级**（未手动指定时）：Anthropic → OpenAI → Google
+> 自动桥接规则：当检测到上述国内厂商别名 Key 时，会自动补全 `OPENAI_API_KEY`、默认 `OPENAI_BASE_URL` 与默认模型（可在 `.env` 中覆盖）。
+
+### OAuth（可选）
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `OAUTH_OPENAI_AUTH_URL` | OAuth 授权地址 | — |
+| `OAUTH_OPENAI_TOKEN_URL` | OAuth 换 token 地址 | — |
+| `OAUTH_OPENAI_CLIENT_ID` | OAuth Client ID | — |
+| `OAUTH_OPENAI_CLIENT_SECRET` | OAuth Client Secret | — |
+| `OAUTH_OPENAI_REDIRECT_URI` | OAuth 回调地址 | `http://localhost:3000/api/auth/oauth/callback` |
+| `OAUTH_OPENAI_SCOPE` | OAuth scope | `openid profile offline_access` |
+| `OAUTH_OPENAI_BASE_URL` | OAuth 凭据下使用的 OpenAI 兼容 base URL | `https://api.openai.com/v1` |
+| `OAUTH_OPENAI_MODEL` | OAuth 凭据下默认模型 | `gpt-4o` |
+
+**推荐预设（国内）**
+
+```ini
+# 千问（阿里 DashScope）
+PI_BUTLER_PROVIDER=openai
+OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+OPENAI_API_KEY=sk-xxxx
+PI_BUTLER_MODEL=qwen-plus
+
+# 豆包（火山方舟）
+# OPENAI_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+# PI_BUTLER_MODEL=doubao-1.5-pro-32k-250115
+
+# Kimi（Moonshot）
+# OPENAI_BASE_URL=https://api.moonshot.cn/v1
+# PI_BUTLER_MODEL=moonshot-v1-8k
+
+# DeepSeek
+# OPENAI_BASE_URL=https://api.deepseek.com/v1
+# PI_BUTLER_MODEL=deepseek-chat
+```
 
 ### 自定义端点（代理 / 本地模型）
 

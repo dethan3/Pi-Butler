@@ -1,9 +1,90 @@
 import { Router, Request, Response } from "express";
 import type { Gateway } from "../gateway.js";
 import type { IncomingMessage, OutgoingChunk } from "./types.js";
+import type { AuthProvider } from "../auth/types.js";
+import { toHttpError } from "../errors.js";
 
 export function createHttpAdapter(gateway: Gateway): Router {
   const router = Router();
+
+  // POST /api/auth/oauth/start
+  router.post("/api/auth/oauth/start", (req: Request, res: Response) => {
+    const {
+      userId,
+      channel,
+      provider,
+      redirectUri,
+    } = req.body as {
+      userId?: string;
+      channel?: string;
+      provider?: AuthProvider;
+      redirectUri?: string;
+    };
+
+    if (!userId) {
+      res.status(400).json({ error: "userId is required" });
+      return;
+    }
+
+    try {
+      const result = gateway.startOAuth({
+        channel: channel ?? "http",
+        userId,
+        provider: provider ?? "openai_codex",
+        redirectUri,
+      });
+      res.json(result);
+    } catch (err) {
+      const mapped = toHttpError(err, 400);
+      res.status(mapped.status).json({ error: mapped.message, code: mapped.code });
+    }
+  });
+
+  // GET /api/auth/oauth/callback
+  router.get("/api/auth/oauth/callback", async (req: Request, res: Response) => {
+    const code = String(req.query.code ?? "");
+    const state = String(req.query.state ?? "");
+
+    if (!code || !state) {
+      res.status(400).json({ error: "code and state are required" });
+      return;
+    }
+
+    try {
+      const result = await gateway.completeOAuth({ code, state });
+      res.json(result);
+    } catch (err) {
+      const mapped = toHttpError(err, 400);
+      res.status(mapped.status).json({ error: mapped.message, code: mapped.code });
+    }
+  });
+
+  // GET /api/auth/status?channel=http&userId=xxx
+  router.get("/api/auth/status", (req: Request, res: Response) => {
+    const channel = String(req.query.channel ?? "http");
+    const userId = String(req.query.userId ?? "");
+
+    if (!userId) {
+      res.status(400).json({ error: "userId is required" });
+      return;
+    }
+
+    const status = gateway.getAuthStatus(channel, userId);
+    res.json(status);
+  });
+
+  // POST /api/auth/disconnect
+  router.post("/api/auth/disconnect", (req: Request, res: Response) => {
+    const { channel, userId } = req.body as { channel?: string; userId?: string };
+
+    if (!userId) {
+      res.status(400).json({ error: "userId is required" });
+      return;
+    }
+
+    const ok = gateway.disconnectAuth(channel ?? "http", userId);
+    res.json({ ok });
+  });
 
   // POST /api/chat — SSE streaming response
   router.post("/api/chat", async (req: Request, res: Response) => {
@@ -59,7 +140,8 @@ export function createHttpAdapter(gateway: Gateway): Router {
       const reply = await gateway.handleMessageCollected(msg);
       res.json({ reply });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      const mapped = toHttpError(err, 500);
+      res.status(mapped.status).json({ error: mapped.message, code: mapped.code });
     }
   });
 

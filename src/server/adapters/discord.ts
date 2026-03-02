@@ -34,6 +34,33 @@ export function createDiscordAdapter(gateway: Gateway): Client | null {
     }
     if (!text) return;
 
+    if (/^\/auth\s+status$/i.test(text) || /^授权状态$/.test(text)) {
+      const status = gateway.getAuthStatus("discord", message.author.id);
+      if (status.connected) {
+        await message.reply(`已绑定 OAuth：${status.provider ?? "unknown"}`);
+      } else {
+        await message.reply("当前未绑定 OAuth 账号。发送 /auth 开始授权。");
+      }
+      return;
+    }
+
+    if (/^\/auth$/i.test(text) || /^授权$/.test(text)) {
+      try {
+        const result = gateway.getOAuthEntryLink("discord", message.author.id);
+        await message.reply(
+          [
+            "请点击下方链接完成 OAuth 授权：",
+            result.authUrl,
+            "",
+            "完成后可发送 /auth status 查看绑定状态。",
+          ].join("\n"),
+        );
+      } catch (err) {
+        await message.reply(`OAuth 当前不可用：${err instanceof Error ? err.message : String(err)}`);
+      }
+      return;
+    }
+
     const msg: IncomingMessage = {
       channel: "discord",
       userId: message.author.id,
